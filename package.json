@@ -1,20 +1,25 @@
+
 {
   "name": "between-the-lines-ai",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "BetweenTheLines.AI — sentence interpretation backend",
+  "main": "src/server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/AhmedOmar02/between-the-lines-ai.git"
-  },
+  "keywords": [],
   "author": "",
   "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/AhmedOmar02/between-the-lines-ai/issues"
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-validator": "^7.3.2",
+    "openai": "^6.45.0"
   },
-  "homepage": "https://github.com/AhmedOmar02/between-the-lines-ai#readme",
-  "keywords": []
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "type": "module"
 }
