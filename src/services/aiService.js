@@ -71,6 +71,7 @@ export async function analyzeSentence(sentence, context) {
 
   const callPromise = client.chat.completions.create({
     model: config.deepseek.model,
+    max_tokens: 1000,
     response_format: { type: "json_object" },
     messages: [
       { role: "system", content: systemPrompt },
@@ -84,6 +85,7 @@ export async function analyzeSentence(sentence, context) {
   } catch (err) {
     if (err instanceof AITimeoutError) throw err;
     // Upstream network / auth errors
+    console.error("[aiService] API call failed:", err.message, err.status, err.error);
     throw new AIServiceError(`DeepSeek API error: ${err.message}`);
   }
 
