@@ -5,8 +5,8 @@ A stateless REST API that analyzes a sentence and returns multiple possible inte
 ## Quick Start
 
 ```bash
-git clone <your-repo-url>
-cd backend
+git clone https://github.com/AhmedOmar02/between-the-lines-ai.git
+cd between-the-lines-ai
 npm install
 cp .env.example .env   # then fill in your DEEPSEEK_API_KEY
 npm run dev
@@ -14,13 +14,13 @@ npm run dev
 
 ## Environment Variables
 
-| Variable           | Required | Default                    | Description                        |
-|--------------------|----------|----------------------------|------------------------------------|
-| `DEEPSEEK_API_KEY` | ✅ yes   | —                          | Your DeepSeek API key              |
-| `PORT`             | no       | `3000`                     | Port the server listens on         |
-| `DEEPSEEK_BASE_URL`| no       | `https://api.deepseek.com` | DeepSeek API base URL              |
-| `DEEPSEEK_MODEL`   | no       | `deepseek-v4-flash`        | Model to use                       |
-| `AI_TIMEOUT_MS`    | no       | `4000`                     | Max ms to wait for the AI response |
+| Variable           | Required | Default                        | Description                        |
+|--------------------|----------|--------------------------------|------------------------------------|
+| `DEEPSEEK_API_KEY` | ✅ yes   | —                              | get from openrouter.ai             |
+| `PORT`             | no       | `3000`                         | Port the server listens on         |
+| `DEEPSEEK_BASE_URL`| no       | `https://openrouter.ai/api/v1` | DeepSeek API base URL              |
+| `DEEPSEEK_MODEL`   | no       | `qwen/qwen3.5-plus-20260420    | Model to use                       |
+| `AI_TIMEOUT_MS`    | no       | `100000`                       | Max ms to wait for the AI response |
 
 The server will **refuse to start** if `DEEPSEEK_API_KEY` is missing.
 
