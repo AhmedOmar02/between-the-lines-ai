@@ -8,7 +8,9 @@ export const validateAnalyzeBody = [
     .withMessage("sentence must be a string")
     .trim()
     .notEmpty()
-    .withMessage("sentence is required"),
+    .withMessage("sentence is required")
+    .isLength({ max: 1000 })
+    .withMessage("sentence must not exceed 1000 characters"),
 
   // Optional context fields — must be strings if present
   body("context.relationshipType")
