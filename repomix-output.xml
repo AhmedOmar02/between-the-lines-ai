@@ -1,0 +1,886 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+src/
+  config/
+    env.js
+  controllers/
+    analysisController.js
+  middleware/
+    errorHandler.js
+    rateLimiter.js
+    validateRequest.js
+  routes/
+    analysisRoutes.js
+  services/
+    aiService.js
+  utils/
+    promptBuilder.js
+  app.js
+  server.js
+.env.example
+.gitignore
+package.json
+PROJECT_SPEC.md
+README.md
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path="src/config/env.js">
+import dotenv from "dotenv";
+dotenv.config();
+
+const required = ["DEEPSEEK_API_KEY"];
+
+for (const key of required) {
+  if (!process.env[key]) {
+    console.error(`[startup] Missing required environment variable: ${key}`);
+    process.exit(1);
+  }
+}
+
+export const config = {
+  port: parseInt(process.env.PORT || "3000", 10),
+  deepseek: {
+    apiKey: process.env.DEEPSEEK_API_KEY,
+    baseURL: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
+    model: process.env.DEEPSEEK_MODEL || "deepseek-v4-flash",
+    timeoutMs: parseInt(process.env.AI_TIMEOUT_MS || "4000", 10),
+  },
+};
+</file>
+
+<file path="src/controllers/analysisController.js">
+import { analyzeSentence } from "../services/aiService.js";
+
+export async function analyze(req, res, next) {
+  const { sentence, context } = req.body;
+
+  const startTime = Date.now();
+
+  try {
+    const result = await analyzeSentence(sentence, context);
+    const processingTimeMs = Date.now() - startTime;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        interpretations: result.interpretations,
+        dominantTone: result.dominantTone,
+        processingTimeMs,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+</file>
+
+<file path="src/middleware/errorHandler.js">
+import { AITimeoutError, AIServiceError } from "../services/aiService.js";
+
+// eslint-disable-next-line no-unused-vars
+export function errorHandler(err, req, res, next) {
+  if (err instanceof AITimeoutError) {
+    return res.status(504).json({
+      success: false,
+      error: "Analysis timed out, please try again",
+    });
+  }
+
+  if (err instanceof AIServiceError) {
+    return res.status(502).json({
+      success: false,
+      error: "AI service unavailable, please try again",
+    });
+  }
+
+  // Unexpected errors — don't leak internals
+  console.error("[errorHandler] Unhandled error:", err);
+  return res.status(500).json({
+    success: false,
+    error: "An unexpected error occurred",
+  });
+}
+</file>
+
+<file path="src/middleware/rateLimiter.js">
+import rateLimit from "express-rate-limit";
+
+export const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (_req, res) => {
+    res.status(429).json({
+      success: false,
+      error: "Too many requests. Please wait a minute before trying again.",
+    });
+  },
+});
+</file>
+
+<file path="src/routes/analysisRoutes.js">
+import { Router } from "express";
+import { validateAnalyzeBody } from "../middleware/validateRequest.js";
+import { analyze } from "../controllers/analysisController.js";
+
+const router = Router();
+
+// POST /api/analyze
+router.post("/analyze", validateAnalyzeBody, analyze);
+
+// GET /api/health
+router.get("/health", (_req, res) => {
+  res.status(200).json({ status: "ok" });
+});
+
+export default router;
+</file>
+
+<file path="src/utils/promptBuilder.js">
+const TONE_VOCABULARY = [
+  "neutral",
+  "friendly",
+  "frustrated",
+  "sarcastic",
+  "anxious",
+  "affectionate",
+  "dismissive",
+  "apologetic",
+];
+
+/**
+ * Builds the system and user prompts for the DeepSeek analysis call.
+ * @param {string} sentence
+ * @param {{ relationshipType?: string, channel?: string, background?: string }} [context]
+ * @returns {{ systemPrompt: string, userPrompt: string }}
+ */
+export function buildPrompt(sentence, context = {}) {
+  const toneList = TONE_VOCABULARY.join(", ");
+
+  const systemPrompt = `You are an expert in communication analysis and interpersonal dynamics.
+Your job is to identify multiple plausible interpretations of a sentence, considering the context in which it was said.
+
+Return ONLY a valid JSON object — no markdown, no explanation outside the JSON — matching this exact shape:
+{
+  "interpretations": [
+    {
+      "meaning": "string — the possible interpretation in plain language",
+      "explanation": "string — why this reading is plausible",
+      "tone": "string — one of the allowed tone values"
+    }
+  ],
+  "dominantTone": "string — the single most likely tone overall"
+}
+
+Rules:
+- Return exactly 2 to 4 interpretations. No more, no fewer.
+- If context fields are provided, ground your interpretations in that context.
+- The "tone" field MUST be one of this closed set: ${toneList}.
+- "dominantTone" MUST also be from the same set.
+- Do not add any keys beyond those specified above.`;
+
+  const contextLines = [];
+  if (context.relationshipType)
+    contextLines.push(`Relationship: ${context.relationshipType}`);
+  if (context.channel) contextLines.push(`Channel: ${context.channel}`);
+  if (context.background)
+    contextLines.push(`Background: ${context.background}`);
+
+  const contextBlock =
+    contextLines.length > 0
+      ? `\n\nContext:\n${contextLines.join("\n")}`
+      : "\n\nNo additional context was provided.";
+
+  const userPrompt = `Analyze the following sentence and return all plausible interpretations as JSON.
+
+Sentence: "${sentence}"${contextBlock}`;
+
+  return { systemPrompt, userPrompt };
+}
+</file>
+
+<file path=".env.example">
+PORT=3000
+DEEPSEEK_API_KEY=your api key
+DEEPSEEK_BASE_URL=https://openrouter.ai/api/v1
+DEEPSEEK_MODEL=qwen/qwen3.5-plus-20260420
+AI_TIMEOUT_MS=600000
+</file>
+
+<file path="src/middleware/validateRequest.js">
+import { body, validationResult } from "express-validator";
+
+export const validateAnalyzeBody = [
+  body("sentence")
+    .exists({ checkNull: true })
+    .withMessage("sentence is required")
+    .isString()
+    .withMessage("sentence must be a string")
+    .trim()
+    .notEmpty()
+    .withMessage("sentence is required")
+    .isLength({ max: 1000 })
+    .withMessage("sentence must not exceed 1000 characters"),
+
+  // Optional context fields — must be strings if present
+  body("context.relationshipType")
+    .optional()
+    .isString()
+    .withMessage("context.relationshipType must be a string"),
+  body("context.channel")
+    .optional()
+    .isString()
+    .withMessage("context.channel must be a string"),
+  body("context.background")
+    .optional()
+    .isString()
+    .withMessage("context.background must be a string"),
+
+  // Reject the request if validation fails
+  (req, res, next) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: errors.array()[0].msg,
+      });
+    }
+    next();
+  },
+];
+</file>
+
+<file path="src/services/aiService.js">
+import OpenAI from "openai";
+import { config } from "../config/env.js";
+import { buildPrompt } from "../utils/promptBuilder.js";
+
+const client = new OpenAI({
+  apiKey: config.deepseek.apiKey,
+  baseURL: config.deepseek.baseURL,
+});
+
+// Typed error classes so the error handler can map them precisely
+export class AITimeoutError extends Error {
+  constructor() {
+    super("AI request timed out");
+    this.name = "AITimeoutError";
+  }
+}
+
+export class AIServiceError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "AIServiceError";
+  }
+}
+
+/**
+ * Validates the parsed JSON from DeepSeek matches the AnalysisResult shape.
+ * Throws AIServiceError if it doesn't.
+ */
+function validateAnalysisResult(parsed) {
+  if (!parsed || typeof parsed !== "object") {
+    throw new AIServiceError("AI returned a non-object response");
+  }
+
+  if (!Array.isArray(parsed.interpretations) || parsed.interpretations.length < 2) {
+    throw new AIServiceError("AI returned fewer than 2 interpretations");
+  }
+
+  if (parsed.interpretations.length > 4) {
+    throw new AIServiceError("AI returned more than 4 interpretations");
+  }
+
+  for (const interp of parsed.interpretations) {
+    if (
+      typeof interp.meaning !== "string" ||
+      typeof interp.explanation !== "string" ||
+      typeof interp.tone !== "string"
+    ) {
+      throw new AIServiceError(
+        "AI interpretation is missing required fields (meaning, explanation, tone)"
+      );
+    }
+  }
+
+  if (typeof parsed.dominantTone !== "string") {
+    throw new AIServiceError("AI response missing dominantTone");
+  }
+}
+
+/**
+ * Analyzes a sentence and returns interpretations from DeepSeek.
+ * @param {string} sentence
+ * @param {object} [context]
+ * @returns {Promise<{ interpretations: Array, dominantTone: string }>}
+ */
+export async function analyzeSentence(sentence, context) {
+  const { systemPrompt, userPrompt } = buildPrompt(sentence, context);
+
+  const timeoutPromise = new Promise((_, reject) =>
+    setTimeout(() => reject(new AITimeoutError()), config.deepseek.timeoutMs)
+  );
+
+  const callPromise = client.chat.completions.create({
+    model: config.deepseek.model,
+    max_tokens: 1000,
+    response_format: { type: "json_object" },
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt },
+    ],
+  });
+
+  let completion;
+  try {
+    completion = await Promise.race([callPromise, timeoutPromise]);
+  } catch (err) {
+    if (err instanceof AITimeoutError) throw err;
+    // Upstream network / auth errors
+    console.error("[aiService] API call failed:", err.message, err.status, err.error);
+    throw new AIServiceError(`DeepSeek API error: ${err.message}`);
+  }
+
+  const rawText = completion.choices?.[0]?.message?.content;
+  if (!rawText) {
+    throw new AIServiceError("AI returned an empty response");
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    throw new AIServiceError("AI returned malformed JSON");
+  }
+
+  validateAnalysisResult(parsed);
+
+  return {
+    interpretations: parsed.interpretations,
+    dominantTone: parsed.dominantTone,
+  };
+}
+</file>
+
+<file path="src/server.js">
+import { config } from "./config/env.js";
+import app from "./app.js";
+
+app.listen(config.port, () => {
+  console.log(`[server] BetweenTheLines.AI running on port ${config.port}`);
+});
+</file>
+
+<file path=".gitignore">
+node_modules/
+.env
+*.log
+npm-debug.log*
+.DS_Store
+</file>
+
+<file path="PROJECT_SPEC.md">
+# BetweenTheLines.AI
+
+## Overview
+A backend web service that analyzes a sentence and generates possible interpretations to help users avoid misunderstandings during communication.
+
+## Problem Statement
+Many sentences can have multiple meanings depending on context. Misunderstandings often occur when people interpret the same sentence differently. This project helps users explore possible interpretations before responding.
+
+## Objectives
+- Analyze user-provided sentences.
+- Generate multiple possible meanings.
+- Explain why each interpretation is valid.
+- Identify the emotional tone behind each interpretation.
+- Improve communication clarity.
+
+## Scope (Phase 1 — MVP)
+This is the scope for the first build. No user accounts, no auth, no persistence.
+
+**In scope:**
+- Sentence analysis endpoint (stateless, no login required).
+- Optional context fields (relationship type, channel, background) sent with the sentence.
+- Multiple interpretation generation via DeepSeek.
+- Tone detection per interpretation.
+
+**Out of scope for Phase 1 (see "Future Enhancements"):**
+- User accounts / authentication.
+- Saving or viewing history of past analyses.
+- MongoDB persistence.
+- Rate limiting / multi-tenant usage controls.
+
+## Tech Stack
+
+### Backend
+- Node.js (LTS)
+- Express.js
+
+### AI Integration
+- DeepSeek API (OpenAI-compatible wire format)
+- Model: `deepseek-v4-flash`
+  - **Do not use the legacy `deepseek-chat` model name** — it is being retired on **July 24, 2026**. Build directly against `deepseek-v4-flash`.
+  - Base URL: `https://api.deepseek.com`
+  - Use the official `openai` npm SDK pointed at the DeepSeek base URL (the wire format is OpenAI-compatible, so the SDK works unmodified).
+
+### Database
+- MongoDB — **deferred to Phase 2** (not required for the MVP build; do not wire up a DB connection in Phase 1).
+
+### Version Control
+- Git / GitHub
+
+## System Architecture
+
+```
+Client
+  ↓
+Express API (routes → middleware → controllers)
+  ↓
+AI Service Layer (services/aiService.js)
+  ↓
+DeepSeek API (deepseek-v4-flash)
+```
+
+The AI Service Layer is the only part of the codebase that knows about DeepSeek. Controllers never call the AI provider directly — this keeps the provider swappable later without touching routes or controllers.
+
+## Functional Requirements
+- FR1: User can submit a sentence for analysis via `POST /api/analyze`.
+- FR2: User can optionally provide context: `relationshipType`, `channel`, `background`.
+- FR3: The system shall analyze the submitted sentence using the DeepSeek AI model.
+- FR4: The system shall return 2–4 distinct possible interpretations per sentence.
+- FR5: Each interpretation shall include an explanation of why that reading is plausible.
+- FR6: The system shall identify an emotional tone for each interpretation (e.g., neutral, friendly, frustrated, sarcastic, anxious, affectionate).
+- FR7: The system shall return a `dominantTone` summarizing the overall likely tone.
+- FR8: The system shall validate that `sentence` is present and non-empty before calling the AI service.
+- FR9: The system shall expose a health-check endpoint for uptime monitoring.
+
+## Non-Functional Requirements
+- NFR1: Total response time under 5 seconds for a typical request (single AI call, no retries).
+- NFR2: The AI call shall time out at 4 seconds and fail gracefully with a clear error rather than hanging.
+- NFR3: API responses shall follow a consistent JSON envelope (`success`, `data`/`error`).
+- NFR4: No secrets (API keys) committed to source control — all config via environment variables.
+- NFR5: The system shall support increasing request volume without significant degradation (stateless request handling, no in-memory session state).
+
+## Data Model (Response Shape)
+No database in Phase 1 — this defines the shape of data passed between the AI Service Layer and the API response, not a persisted schema.
+
+```ts
+interface Interpretation {
+  meaning: string;       // the possible interpretation, in plain language
+  explanation: string;   // why this reading is plausible
+  tone: string;          // e.g. "neutral", "frustrated", "sarcastic"
+}
+
+interface AnalysisResult {
+  interpretations: Interpretation[];
+  dominantTone: string;
+  processingTimeMs: number;
+}
+```
+
+## API Endpoints
+
+### `POST /api/analyze`
+Analyze a sentence and return possible interpretations.
+
+**Request body:**
+```json
+{
+  "sentence": "Fine, do whatever you want.",
+  "context": {
+    "relationshipType": "partner",
+    "channel": "text",
+    "background": "We were discussing weekend plans."
+  }
+}
+```
+`sentence` is required. `context` and all its fields are optional.
+
+**Success response — `200`:**
+```json
+{
+  "success": true,
+  "data": {
+    "interpretations": [
+      {
+        "meaning": "Genuine agreement, no hidden frustration.",
+        "explanation": "Could be a sincere hand-off of the decision with no negative undertone.",
+        "tone": "neutral"
+      },
+      {
+        "meaning": "Passive-aggressive resignation.",
+        "explanation": "The brevity and 'whatever you want' phrasing often signal suppressed annoyance.",
+        "tone": "frustrated"
+      }
+    ],
+    "dominantTone": "frustrated",
+    "processingTimeMs": 1840
+  }
+}
+```
+
+**Error responses:**
+```json
+// 400 — validation error
+{ "success": false, "error": "sentence is required" }
+
+// 502 — AI service failed or returned invalid output
+{ "success": false, "error": "AI service unavailable, please try again" }
+
+// 504 — AI call exceeded internal timeout
+{ "success": false, "error": "Analysis timed out, please try again" }
+```
+
+### `GET /api/health`
+Simple liveness check for uptime monitoring / load balancers.
+
+**Response — `200`:**
+```json
+{ "status": "ok" }
+```
+
+## AI Integration Details
+
+- Send a **single** chat completion request per analysis (don't make multiple round trips for interpretations vs. tone — combine them in one prompt/response for latency).
+- Use `response_format: { type: "json_object" }` on the DeepSeek request so the model is constrained to return valid JSON, and instruct it explicitly (in the system prompt) to return JSON matching the `AnalysisResult` shape above.
+- Build the prompt in `utils/promptBuilder.js`, not inline in the service — keep prompt text out of the request-handling logic so it's easy to iterate on independently.
+- The system prompt should instruct the model to:
+  - Return 2–4 interpretations, not more.
+  - Ground each interpretation in the optional context fields when provided.
+  - Keep `tone` values to a small consistent vocabulary (neutral, friendly, frustrated, sarcastic, anxious, affectionate, dismissive, apologetic — extend as needed, but keep it a closed set so the frontend can map tones to consistent UI treatment later).
+- Wrap the DeepSeek call with a 4-second timeout. On timeout or malformed JSON response, return the `504`/`502` errors defined above — never let a bad AI response leak through as a 200.
+
+## Project Structure
+
+```
+backend/
+├── src/
+│   ├── config/
+│   │   └── env.js              # loads & validates required env vars at startup
+│   ├── controllers/
+│   │   └── analysisController.js
+│   ├── routes/
+│   │   └── analysisRoutes.js
+│   ├── services/
+│   │   └── aiService.js        # AI Service Layer — only file that talks to DeepSeek
+│   ├── middleware/
+│   │   ├── errorHandler.js     # centralized error → JSON envelope
+│   │   └── validateRequest.js  # validates POST /api/analyze body
+│   ├── utils/
+│   │   └── promptBuilder.js    # builds the system/user prompt sent to DeepSeek
+│   ├── app.js                  # express app: middleware, routes, error handler
+│   └── server.js               # entry point, starts the HTTP server
+├── .env.example
+├── .gitignore
+├── package.json
+└── README.md
+```
+
+## Environment Variables
+
+`.env.example`:
+```
+PORT=3000
+DEEPSEEK_API_KEY=your_key_here
+DEEPSEEK_BASE_URL=https://api.deepseek.com
+DEEPSEEK_MODEL=deepseek-v4-flash
+AI_TIMEOUT_MS=4000
+```
+
+`config/env.js` should fail fast at startup (throw / `process.exit(1)`) if `DEEPSEEK_API_KEY` is missing — don't let the server boot into a state where it can't serve its core feature.
+
+## Installation
+
+```bash
+git clone <your-repo-url>
+cd backend
+npm install
+cp .env.example .env        # then fill in DEEPSEEK_API_KEY
+npm run dev                 # nodemon, for local development
+```
+
+`package.json` scripts:
+```json
+{
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js"
+  }
+}
+```
+
+**Core dependencies:** `express`, `dotenv`, `openai`, `cors`, `express-validator`
+**Dev dependencies:** `nodemon`
+
+## Build Instructions (for an AI coding agent implementing this)
+
+Implement in this order so each piece is testable before the next depends on it:
+
+1. Initialize the Node.js project (`npm init`) and install the dependencies listed above.
+2. Create `.env.example` and `.gitignore` (standard Node ignores: `node_modules`, `.env`, logs).
+3. Build `config/env.js` — loads `dotenv`, validates required vars, exports a typed config object.
+4. Build `utils/promptBuilder.js` — pure function: `(sentence, context) => { systemPrompt, userPrompt }`.
+5. Build `services/aiService.js` — wraps the `openai` SDK pointed at DeepSeek, calls the model with the built prompt, applies the timeout, parses and validates the JSON response against the `AnalysisResult` shape, throws typed errors on failure (timeout vs malformed response vs upstream error).
+6. Build `middleware/validateRequest.js` — validates `sentence` is a non-empty string; `context` fields are optional strings.
+7. Build `middleware/errorHandler.js` — catches thrown errors, maps them to the `400`/`502`/`504` JSON envelopes defined above.
+8. Build `controllers/analysisController.js` — calls `aiService`, measures `processingTimeMs`, returns the success envelope.
+9. Build `routes/analysisRoutes.js` — wires `POST /api/analyze` and `GET /api/health`.
+10. Build `app.js` (express app + middleware + routes + error handler) and `server.js` (starts the server using `config.PORT`).
+11. Manually verify with curl:
+    ```bash
+    curl -X POST http://localhost:3000/api/analyze \
+      -H "Content-Type: application/json" \
+      -d '{"sentence":"Fine, do whatever you want."}'
+    ```
+12. Verify the failure paths: empty `sentence` → `400`; temporarily break `DEEPSEEK_API_KEY` → `502`.
+
+### Acceptance Criteria (Phase 1 MVP)
+- [ ] `POST /api/analyze` returns 2–4 interpretations with `meaning`, `explanation`, and `tone` for a valid sentence.
+- [ ] Missing or empty `sentence` returns `400` with a clear error message.
+- [ ] AI timeout or upstream failure returns `502`/`504`, never a malformed `200`.
+- [ ] `GET /api/health` returns `200` with `{ "status": "ok" }`.
+- [ ] No secrets committed to the repo; `.env` is gitignored.
+- [ ] Typical request completes in under 5 seconds.
+
+## Future Enhancements (Phase 2)
+- User accounts: registration, login, secure session/token handling.
+- Persist analyses to MongoDB, scoped per user.
+- `GET /api/analyses` and `GET /api/analyses/:id` to list/view saved history.
+- Rate limiting per user/IP.
+- Multi-language sentence support.
+
+## Contributors
+- _Add contributors here._
+
+## License
+- _Add license here (MIT is a common default for open-source projects)._
+</file>
+
+<file path="package.json">
+{
+  "name": "between-the-lines-ai",
+  "version": "1.0.0",
+  "description": "BetweenTheLines.AI — sentence interpretation backend",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.5.2",
+    "express-validator": "^7.3.2",
+    "openai": "^6.45.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  },
+  "type": "module"
+}
+</file>
+
+<file path="README.md">
+# BetweenTheLines.AI — Backend
+
+A stateless REST API that analyzes a sentence and returns multiple possible interpretations, helping users avoid miscommunication.
+
+## Quick Start
+
+```bash
+git clone https://github.com/AhmedOmar02/between-the-lines-ai.git
+cd between-the-lines-ai
+npm install
+cp .env.example .env   # then fill in your DEEPSEEK_API_KEY
+npm run dev
+```
+
+## Environment Variables
+
+| Variable           | Required | Default                        | Description                        |
+|--------------------|----------|--------------------------------|------------------------------------|
+| `DEEPSEEK_API_KEY` | ✅ yes   | —                              | get from openrouter.ai             |
+| `PORT`             | no       | `3000`                         | Port the server listens on         |
+| `DEEPSEEK_BASE_URL`| no       | `https://openrouter.ai/api/v1` | DeepSeek API base URL              |
+| `DEEPSEEK_MODEL`   | no       | `qwen/qwen3.5-plus-20260420    | Model to use                       |
+| `AI_TIMEOUT_MS`    | no       | `100000`                       | Max ms to wait for the AI response |
+
+The server will **refuse to start** if `DEEPSEEK_API_KEY` is missing.
+
+## API
+
+### `POST /api/analyze`
+
+Analyze a sentence and return 2–4 interpretations.
+
+**Request:**
+```json
+{
+  "sentence": "Fine, do whatever you want.",
+  "context": {
+    "relationshipType": "partner",
+    "channel": "text",
+    "background": "We were discussing weekend plans."
+  }
+}
+```
+`sentence` is required. `context` and all its sub-fields are optional.
+
+**Success (200):**
+```json
+{
+  "success": true,
+  "data": {
+    "interpretations": [
+      {
+        "meaning": "Genuine agreement with no hidden frustration.",
+        "explanation": "Could be a sincere hand-off of the decision.",
+        "tone": "neutral"
+      },
+      {
+        "meaning": "Passive-aggressive resignation.",
+        "explanation": "The brevity and phrasing often signal suppressed annoyance.",
+        "tone": "frustrated"
+      }
+    ],
+    "dominantTone": "frustrated",
+    "processingTimeMs": 1840
+  }
+}
+```
+
+**Errors:**
+| Status | Cause                              |
+|--------|------------------------------------|
+| 400    | Missing or empty `sentence`        |
+| 502    | AI service error / malformed reply |
+| 504    | AI call exceeded timeout           |
+
+### `GET /api/health`
+```json
+{ "status": "ok" }
+```
+
+## Project Structure
+
+```
+src/
+├── config/env.js              # Loads & validates env vars at startup
+├── controllers/
+│   └── analysisController.js  # Calls AI service, returns response
+├── routes/
+│   └── analysisRoutes.js      # POST /api/analyze, GET /api/health
+├── services/
+│   └── aiService.js           # Only file that talks to DeepSeek
+├── middleware/
+│   ├── errorHandler.js        # Maps typed errors → JSON envelopes
+│   └── validateRequest.js     # Validates request body
+├── utils/
+│   └── promptBuilder.js       # Builds system/user prompts
+├── app.js                     # Express app setup
+└── server.js                  # Entry point
+```
+
+## Verify with curl
+
+```bash
+# Happy path
+curl -X POST http://localhost:3000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{"sentence":"Fine, do whatever you want.", "context": {"relationshipType": "partner", "channel": "text"}}'
+
+# Validation error (expect 400)
+curl -X POST http://localhost:3000/api/analyze \
+  -H "Content-Type: application/json" \
+  -d '{}'
+
+# Health check
+curl http://localhost:3000/api/health
+```
+
+## Scripts
+
+| Command       | Description                          |
+|---------------|--------------------------------------|
+| `npm run dev` | Start with nodemon (auto-reload)     |
+| `npm start`   | Start for production                 |
+</file>
+
+<file path="src/app.js">
+import express from "express";
+import cors from "cors";
+import analysisRoutes from "./routes/analysisRoutes.js";
+import { errorHandler } from "./middleware/errorHandler.js";
+import { apiLimiter } from "./middleware/rateLimiter.js";
+
+const app = express();
+
+// Middleware
+app.use(cors());
+app.use(express.json({ limit: "10kb" }));
+app.use("/api", apiLimiter);
+
+app.get("/", (req, res) => {
+    res.send("Backend is running!");
+});
+
+
+// Routes
+app.use("/api", analysisRoutes);
+
+// Centralized error handler — must be registered last
+app.use(errorHandler);
+
+export default app;
+</file>
+
+</files>
