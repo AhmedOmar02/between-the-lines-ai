@@ -31,6 +31,34 @@ export async function register(req, res, next) {
   }
 }
 
+export async function updateMe(req, res, next) {
+  const { email, password } = req.body;
+
+  try {
+    const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
+    const user = await User.findByIdAndUpdate(
+      req.userId,
+      { email, passwordHash },
+      { new: true, runValidators: true }
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        user: { id: user._id, email: user.email },
+      },
+    });
+  } catch (err) {
+    if (err.code === 11000) {
+      return res.status(409).json({
+        success: false,
+        error: "An account with this email already exists",
+      });
+    }
+    next(err);
+  }
+}
+
 export async function login(req, res, next) {
   const { email, password } = req.body;
 

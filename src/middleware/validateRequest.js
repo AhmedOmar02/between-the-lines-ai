@@ -28,6 +28,23 @@ export const validateRegisterBody = [
   checkValidation,
 ];
 
+export const validateUpdateMeBody = [
+  body("email")
+    .exists({ checkNull: true })
+    .withMessage("email is required")
+    .isEmail()
+    .withMessage("email must be a valid email address")
+    .normalizeEmail(),
+  body("password")
+    .exists({ checkNull: true })
+    .withMessage("password is required")
+    .isString()
+    .withMessage("password must be a string")
+    .isLength({ min: 8 })
+    .withMessage("password must be at least 8 characters"),
+  checkValidation,
+];
+
 export const validateLoginBody = [
   body("email")
     .exists({ checkNull: true })

@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { validateRegisterBody, validateLoginBody } from "../middleware/validateRequest.js";
-import { register, login } from "../controllers/authController.js";
+import { validateRegisterBody, validateLoginBody, validateUpdateMeBody } from "../middleware/validateRequest.js";
+import { authenticate } from "../middleware/authenticate.js";
+import { register, login, updateMe } from "../controllers/authController.js";
 
 const router = Router();
 
@@ -9,5 +10,8 @@ router.post("/auth/register", validateRegisterBody, register);
 
 // POST /api/auth/login
 router.post("/auth/login", validateLoginBody, login);
+
+// PATCH /api/auth/me
+router.patch("/auth/me", authenticate, validateUpdateMeBody, updateMe);
 
 export default router;
