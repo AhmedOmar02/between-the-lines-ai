@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import analysisRoutes from "./routes/analysisRoutes.js";
+import authRoutes from "./routes/authRoutes.js";
 import { errorHandler } from "./middleware/errorHandler.js";
 import { apiLimiter } from "./middleware/rateLimiter.js";
 
@@ -17,6 +18,7 @@ app.get("/", (req, res) => {
 
 
 // Routes
+app.use("/api", authRoutes);
 app.use("/api", analysisRoutes);
 
 // Centralized error handler — must be registered last

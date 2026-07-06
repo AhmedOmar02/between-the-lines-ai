@@ -1,5 +1,48 @@
 import { body, validationResult } from "express-validator";
 
+const checkValidation = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      error: errors.array()[0].msg,
+    });
+  }
+  next();
+};
+
+export const validateRegisterBody = [
+  body("email")
+    .exists({ checkNull: true })
+    .withMessage("email is required")
+    .isEmail()
+    .withMessage("email must be a valid email address")
+    .normalizeEmail(),
+  body("password")
+    .exists({ checkNull: true })
+    .withMessage("password is required")
+    .isString()
+    .withMessage("password must be a string")
+    .isLength({ min: 8 })
+    .withMessage("password must be at least 8 characters"),
+  checkValidation,
+];
+
+export const validateLoginBody = [
+  body("email")
+    .exists({ checkNull: true })
+    .withMessage("email is required")
+    .isEmail()
+    .withMessage("email must be a valid email address")
+    .normalizeEmail(),
+  body("password")
+    .exists({ checkNull: true })
+    .withMessage("password is required")
+    .isString()
+    .withMessage("password must be a string"),
+  checkValidation,
+];
+
 export const validateAnalyzeBody = [
   body("sentence")
     .exists({ checkNull: true })
@@ -26,15 +69,5 @@ export const validateAnalyzeBody = [
     .isString()
     .withMessage("context.background must be a string"),
 
-  // Reject the request if validation fails
-  (req, res, next) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: errors.array()[0].msg,
-      });
-    }
-    next();
-  },
+  checkValidation,
 ];
