@@ -97,12 +97,14 @@ Analyze a sentence and return 2–4 interpretations. The result is auto-saved to
       {
         "meaning": "Genuine agreement with no hidden frustration.",
         "explanation": "Could be a sincere hand-off of the decision.",
-        "tone": "neutral"
+        "tone": "neutral",
+        "confidence": 40
       },
       {
         "meaning": "Passive-aggressive resignation.",
         "explanation": "The brevity and phrasing often signal suppressed annoyance.",
-        "tone": "frustrated"
+        "tone": "frustrated",
+        "confidence": 75
       }
     ],
     "dominantTone": "frustrated",

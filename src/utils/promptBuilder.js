@@ -27,7 +27,8 @@ Return ONLY a valid JSON object — no markdown, no explanation outside the JSON
     {
       "meaning": "string — the possible interpretation in plain language",
       "explanation": "string — why this reading is plausible",
-      "tone": "string — one of the allowed tone values"
+      "tone": "string — one of the allowed tone values",
+      "confidence": "number — 0 to 100, how likely this interpretation is correct"
     }
   ],
   "dominantTone": "string — the single most likely tone overall"
@@ -38,6 +39,8 @@ Rules:
 - If context fields are provided, ground your interpretations in that context.
 - The "tone" field MUST be one of this closed set: ${toneList}.
 - "dominantTone" MUST also be from the same set.
+- "confidence" is a number from 0 to 100 reflecting how likely each interpretation is correct relative to the others. They do not need to sum to 100 — just rank your genuine confidence.
+- Use simple, everyday English. Avoid complex or academic words. Write as if explaining to a non-native English speaker.
 - Do not add any keys beyond those specified above.`;
 
   const contextLines = [];

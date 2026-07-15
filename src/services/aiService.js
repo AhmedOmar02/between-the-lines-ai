@@ -43,11 +43,16 @@ function validateAnalysisResult(parsed) {
     if (
       typeof interp.meaning !== "string" ||
       typeof interp.explanation !== "string" ||
-      typeof interp.tone !== "string"
+      typeof interp.tone !== "string" ||
+      typeof interp.confidence !== "number"
     ) {
       throw new AIServiceError(
-        "AI interpretation is missing required fields (meaning, explanation, tone)"
+        "AI interpretation is missing required fields (meaning, explanation, tone, confidence)"
       );
+    }
+
+    if (interp.confidence < 0 || interp.confidence > 100) {
+      throw new AIServiceError("AI interpretation confidence must be between 0 and 100");
     }
   }
 

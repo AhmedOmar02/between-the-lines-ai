@@ -5,6 +5,7 @@ const interpretationSchema = new Schema(
     meaning: { type: String, required: true },
     explanation: { type: String, required: true },
     tone: { type: String, required: true },
+    confidence: { type: Number, required: true, min: 0, max: 100 },
   },
   { _id: false }
 );
